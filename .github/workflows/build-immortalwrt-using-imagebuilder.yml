@@ -10,24 +10,22 @@ name: Build immortalwrt using ImageBuilder
 
 on:
   repository_dispatch:
-  schedule:
-    - cron: '0 2 * * *'  # UTC 2点 = 北京时间10点（UTC+8时区换算）
   workflow_dispatch:
     inputs:
       releases_branch:
         description: "Select the releases branch"
         required: false
-        default: "openwrt:24.10.5"
+        default: "immortalwrt:24.10.4"  # 修改默认分支为immortalwrt:24.10.4
         type: choice
         options:
-          - openwrt:24.10.5
-          - openwrt:24.10.4
           - immortalwrt:24.10.4
+          - openwrt:24.10.4
+          - openwrt:24.10.5
           - immortalwrt:24.10.3
       openwrt_board:
         description: "Select device board"
         required: false
-        default: "all"
+        default: "all"  # 保持默认所有设备
         type: choice
         options:
           - all
@@ -56,7 +54,7 @@ on:
           - fine3399
           - firefly-rk3399
           - fmx1-pro
-          - jp-tvbox
+          - gzpeite-p01
           - h28k
           - h66k
           - h68k
@@ -67,6 +65,7 @@ on:
           - hs530r
           - hugsun-x99
           - ipc-r
+          - jp-tvbox
           - king3399
           - kylin3399
           - lckfb-tspi
@@ -247,17 +246,22 @@ on:
           - ophub
           - angel
           - yourname
+  schedule:
+    # 每天北京时间12点执行（UTC时间是4点，因为北京时间=UTC+8）
+    - cron: '0 4 * * *'
 
 env:
   TZ: Etc/UTC
   IMAGEBUILDER_SH: config/imagebuilder/imagebuilder.sh
-  # 新增：定时构建默认分支（immortalwrt最新分支）
-  DEFAULT_RELEASES_BRANCH: "immortalwrt:24.10.4"
 
 jobs:
   build:
     runs-on: ubuntu-24.04
-    if: ${{ github.event.repository.owner.id }} == ${{ github.event.sender.id }}
+    # 触发条件：手动触发 / 仓库事件 / 定时任务（且确保是仓库所有者触发）
+    if: |
+      (github.event_name == 'workflow_dispatch' && github.event.repository.owner.id == github.event.sender.id) ||
+      github.event_name == 'repository_dispatch' ||
+      github.event_name == 'schedule'
 
     steps:
       - name: Checkout
@@ -287,8 +291,6 @@ jobs:
           sudo -E timedatectl set-ntp true
           date -u
           timedatectl status || true
-          # 新增：生成编译日期（格式：2025.12.24）
-          echo "BUILD_DATE=$(date +"%Y.%m.%d")" >> ${GITHUB_ENV}
           echo "status=success" >> ${GITHUB_OUTPUT}
 
       - name: Create simulated physical disk
@@ -314,16 +316,11 @@ jobs:
         id: imagebuilder
         if: ${{ steps.init.outputs.status }} == 'success' && !cancelled()
         run: |
-          # 适配：手动触发用输入分支，定时触发用默认immortalwrt分支
-          RELEASES_BRANCH="${{ github.event.inputs.releases_branch || env.DEFAULT_RELEASES_BRANCH }}"
-          # 提取分支版本号（如immortalwrt:24.10.4 → 24.10.4）
-          BRANCH_VERSION=$(echo ${RELEASES_BRANCH} | awk -F ':' '{print $2}')
-          # 生成带日期的标签名（格式：_24.10.5_2025.12.24）
-          build_tag="_${BRANCH_VERSION}_${{ env.BUILD_DATE }}"
-          echo "build_tag=${build_tag}" >> ${GITHUB_ENV}
-          
+          # 定时任务使用默认分支immortalwrt:24.10.4，手动触发使用用户选择的分支
+          RELEASES_BRANCH="${{ github.event_name == 'schedule' && 'immortalwrt:24.10.4' || inputs.releases_branch }}"
           chmod +x ${IMAGEBUILDER_SH}
           ${IMAGEBUILDER_SH} ${RELEASES_BRANCH}
+          echo "build_tag=OpenWrt_imagebuilder_${RELEASES_BRANCH/:/_}_$(date +"%Y.%m.%d_%H%M")" >> ${GITHUB_ENV}
           # Add symbolic link
           [[ -d "/builder/openwrt" ]] || mkdir -p /builder/openwrt
           ln -sf /builder/openwrt /home/runner/work/_actions/ophub/amlogic-s9xxx-openwrt/main/openwrt
@@ -348,13 +345,13 @@ jobs:
         with:
           openwrt_path: output/*rootfs.tar.gz
           openwrt_ip: ${{ inputs.openwrt_ip || '192.168.1.1' }}
-          # 适配：定时构建默认编译all设备
-          openwrt_board: ${{ github.event.inputs.openwrt_board || 'all' }}
-          openwrt_kernel: ${{ github.event.inputs.openwrt_kernel || '6.1.y_6.12.y' }}
-          auto_kernel: ${{ github.event.inputs.auto_kernel || true }}
-          kernel_repo: ${{ github.event.inputs.kernel_repo || 'ophub/kernel' }}
-          kernel_usage: ${{ github.event.inputs.kernel_usage || 'stable' }}
-          builder_name: ${{ github.event.inputs.builder_name || 'ophub' }}
+          # 定时任务使用all设备，手动触发使用用户选择的设备
+          openwrt_board: ${{ github.event_name == 'schedule' && 'all' || inputs.openwrt_board }}
+          openwrt_kernel: ${{ inputs.openwrt_kernel || '6.1.y_6.12.y' }}
+          auto_kernel: ${{ inputs.auto_kernel || true }}
+          kernel_repo: ${{ inputs.kernel_repo || 'ophub/kernel' }}
+          kernel_usage: ${{ inputs.kernel_usage || 'stable' }}
+          builder_name: ${{ inputs.builder_name || 'ophub' }}
 
       - name: Upload the packaged OpenWrt
         uses: ncipollo/release-action@main
@@ -379,6 +376,3 @@ jobs:
             ### Applicable platform
             - 🐧 `arm64`
             - 🐋 Docker image: https://hub.docker.com/u/ophub
-            ### Build Info
-            - Branch: ${{ github.event.inputs.releases_branch || env.DEFAULT_RELEASES_BRANCH }}
-            - Build Date: ${{ env.BUILD_DATE }}
