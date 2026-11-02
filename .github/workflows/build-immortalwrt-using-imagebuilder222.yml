@@ -9,7 +9,7 @@
 #  - Release 按天打标签，只新增、不删除，历史版本全部保留
 #=====================================================================================
 
-name: Build OpenWrt using ImageBuilder222
+name: Build OpenWrt/immortalwrt using ImageBuilder all
 
 on:
   repository_dispatch:
