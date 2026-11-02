@@ -6,7 +6,7 @@
 #  - Release 按天打标签（前缀-YYYY-MM-DD），只新增、不删除，历史版本全部保留
 #=====================================================================================
 
-name: Build OpenWrt using releases files
+name: Build OpenWrt/immortal using releases files
 
 on:
   repository_dispatch:
